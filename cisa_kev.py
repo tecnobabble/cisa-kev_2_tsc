@@ -589,7 +589,6 @@ for current_argument, current_value in arguments:
 
 # Based on the data provided, decide what to do
 if len(feed_URL) >= 10:
-    os.chdir('/')
     sc = tsc_login()
     sc_queries = sc.queries.list()
     if asset_request is True:

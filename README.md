@@ -11,7 +11,7 @@ This integration automatically updates with the latest alerts from the CISA cata
 
 ## Installation
 
-### Docker Image
+### Get the Docker Image
 
 Use the pre-built docker image
 
@@ -19,11 +19,11 @@ Use the pre-built docker image
 docker pull tecnobabble/cisa-kev_2_tsc:latest
 ```
 
-### Manually Build Docker Image
+OR Manually Build Docker Image
 
 1. Clone the GitHub repository to an empty folder on your local machine:
 ```bash
-git clone https://github.com/tecnobabble/vulnfeed_2_tenb.git .
+git clone https://github.com/tecnobabble/cisa-kev_2_tsc.git .
 ```
 2. Build the container
 ```bash
@@ -31,7 +31,7 @@ docker build -t cisa-kev_2_tsc:latest .
 ```
 
 ### Local Configuration
-Setup your local .env file with the appropriate tenable.sc attributes (replace the attributes below with the ones specific to your environment).
+Setup your local .env file with the appropriate tenable.sc attributes (replace the attributes below with the ones specific to your environment).  [Instructions to generate API keys on Tenable.sc.](https://docs.tenable.com/tenablesc/Content/GenerateAPIKey.htm)
 
 ```bash
 SC_ADDRESS=10.0.0.102
@@ -40,11 +40,27 @@ SC_SECRET_KEY=8360bf971eb9a1e488d294d830a24eba
 SC_PORT=443
 ```
 
+
 #### Configuration Notes:
 * SC_ADDRESS can be an IP or hostname.
 * SC_PORT is optional; defaults to 443.
 * The user who's API keys you select should be a part of the same primary group as the user who will use the objects created, though objects can be shared to other groups. 
 * If desired to be used in multiple organizations within one [Tenable.sc](https://www.tenable.com/products/tenable-sc) console, run the script multiple times, specifiying different API keys for a user in each organization.
+* This can be run directly from any host that supports docker and has network access to your Tenable.sc console; often it's easiest to run this directly from a Tenable Core instance.
+
+##### To setup Docker on Tenable Core run:
+* `sudo yum -y install docker`
+* `sudo groupadd docker`
+* `sudo usermod -aG docker $USER`
+* `sudo systemctl start docker`
+* `newgrp docker`
+* `echo $USER | sudo tee -a /etc/cron.allow`
+* `echo "00 07 * * * docker run --rm --env-file .env tecnobabble/cisa-kev_2_tsc:latest --feed cisa-kev --dashboard" | crontab -`
+* `docker pull tecnobabble/cisa-kev_2_tsc:latest`
+
+1. After following the steps above, create a local configuration file in the format noted above and put it in your user directory in Tenable Core. 
+2. Do a test run `docker run --rm --env-file .env tecnobabble/cisa-kev_2_tsc:latest --feed cisa-kev --dashboard`
+3. Note that the crontab command above will automatically run the script at 7 am every morning; if you want this adjusted; adjust the cron settings.
 
 ## Requirements
 * [Tenable.sc](https://www.tenable.com/products/tenable-sc) 5.20 or higher is required for proper CISA Cross Reference usage.

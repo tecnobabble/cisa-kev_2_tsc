@@ -5,11 +5,13 @@ RUN pip3 install "pyTenable>=1.4.3" python-decouple requests BeautifulSoup4 phps
 RUN apt-get update; apt-get -y upgrade
 
 COPY cisa_kev.py /
-COPY templates /templates
 RUN chmod +x /cisa_kev.py
 
 RUN useradd -ms /bin/bash vulnfeed
-RUN chown -R vulnfeed:vulnfeed /templates
+
+COPY templates /home/vulnfeed/templates
+RUN chown -R vulnfeed:vulnfeed /home/vulnfeed/templates
+
 USER vulnfeed
 WORKDIR /home/vulnfeed
 
