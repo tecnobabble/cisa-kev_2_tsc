@@ -102,7 +102,7 @@ def query_populate():
             data = json.loads(download.content.decode())
             print('Downloaded latest CISA KEVs from https://www.cisa.gov')
         except:
-            print("Something went wrong with the CISA feed.")
+            print("Something went wrong with getting the CISA feed; check your internet connectivity or provide a local copy of the catalog.")
             exit()
     
     due_dates = set()
@@ -487,77 +487,6 @@ def gen_asset(entry_title, asset_rules, new_asset, asset_id, today):
         sc.asset_lists.edit(id=asset_id,list_type="dynamic",tags="CISA KEV",rules=asset_rules,description="Updated at " + str(today))
 
 
-# Generate a canned t.sc report about the entry
-def gen_report(entry_link, entry_description, cve_s, entry_title):
-    Entry_Title = entry_title.replace("'","")
-    Entry_ShortDesc = "For more information, please see the full page at " + entry_link
-    Entry_Summary = entry_description.replace("'","").replace("\\","/")
-    cve_list = cve_s
-
-    # Load the definition template as a jinja template
-    env = Environment(loader = FileSystemLoader('/templates'), trim_blocks=True, lstrip_blocks=True)
-    template_def = env.get_template('definition.txt')
-
-    #Render the definition template with data and print the output
-    report_raw = template_def.render(Entry_Title=Entry_Title, Entry_ShortDesc=Entry_ShortDesc, Entry_Summary=Entry_Summary, cve_list=cve_list)
-
-    # Convert the now rendered template back into a format that tsc can understand (base64 encoded PHP serilaized string)
-    report_raw = ast.literal_eval(report_raw)
-    report_output = base64.b64encode(serialize(report_raw))
-
-    # Render the full XML report template and write the output to a file that we'll then upload to tsc.
-    report = env.get_template('sc_working_template.txt')
-    report_xml = report.render(Entry_Title=Entry_Title, Feed=feed, Entry_ShortDesc=Entry_ShortDesc, report_output=report_output.decode('utf8'))
-    report_name = Entry_Title.replace(" ","").replace(":","-")[:15] + "_report.xml"
-    generated_tsc_report_file = open(report_name, "w")
-    generated_tsc_report_file.write(report_xml)
-    generated_tsc_report_file.close()
-
-    # Upload the report to T.sc
-    generated_tsc_report_file = open(report_name, "r")
-    tsc_file = sc.files.upload(generated_tsc_report_file)
-    report_data = { "name":"","filename":str(tsc_file) }
-    report_post = sc.post('reportDefinition/import', json=report_data).text
-    report_post = json.loads(report_post)
-    report_id = report_post['response']['id']
-    generated_tsc_report_file.close()
-
-    # Configure email on the report if set
-    if len(email_list) >= 5:
-        report_patch_path = "reportDefinition/" + str(report_id)
-        report_email_info = { "emailTargets": email_list }
-        sc.patch(report_patch_path, json=report_email_info)
-    return report_id
-
-
-
-# Generate an alert (requires a query and report to be created)
-def gen_alert(report_id, query_id, entry_link, alert_name, entry_title):
-    alert_description = "For more information, please see the full page at " + entry_link
-    alert_schedule = {"start":"TZID=America/New_York:20200622T070000","repeatRule":"FREQ=WEEKLY;INTERVAL=1;BYDAY=MO","type":"ical","enabled":"true"}
-    if report_request is True: 
-        sc.alerts.create(query={"id":query_id}, schedule=alert_schedule, data_type="vuln", name=alert_name, description=alert_description, trigger=('sumip','>=','1'), always_exec_on_trigger=True, action=[{'type': 'report','report':{'id': report_id}}])
-        print("Created an reporting alert for", entry_title)
-    elif report_request is False and len(email_list) >= 5:
-        sc.alerts.create(query={"id":query_id}, schedule=alert_schedule, data_type="vuln", name=alert_name, description=alert_description, trigger=('sumip','>=','1'), always_exec_on_trigger=True, action=[{'type': 'email','subject': alert_name, 'message': alert_description, 'addresses': email_list, 'includeResults': 'true'}])
-        print("Created an email alert for", entry_title)
-    else:
-        print("Alert creation specified, but no report or email recipients noted, exiting.")
-        exit()
-
-# Define a function for validating an email
-def email_validate(email):
-    regex = '[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[.]\w{2,3}'
-    email_list = []
-    for i in email:
-        if(re.search(regex,i)):
-            email_list += [i]
-        else:
-            print("Invalid Email Address:", i)
-            exit()
-    email_list = ','.join(email_list)
-    return email_list
-
 # Actually handling the arguments that come into the container.
 for current_argument, current_value in arguments:
     if current_argument in ("-h", "--help"):
@@ -565,14 +494,6 @@ for current_argument, current_value in arguments:
         exit()
     #elif current_argument in ("-s", "--t.sc"): # Not implemented until we have T.io functionality
         #print ("Pass to T.sc and attempt to create queries")
-    #if current_argument in ("-e","--email"):
-    #    passed_emails = ""
-    #    passed_emails = current_value.split(",")
-    #    email_list = email_validate(passed_emails)
-    #if current_argument in ("-r", "--report"):
-    #    report_request = True
-    #if current_argument in ("--alert"):
-    #    alert_request = True
     #if current_argument in ("--arc"):
     #    arc_request = True
     if current_argument in ("--asset"):
