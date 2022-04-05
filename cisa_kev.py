@@ -254,7 +254,7 @@ def query_populate():
         dashboard_name = dashboard_template_name[0].replace("{{ Current_Date }}", str(today))
 
         for x in range(len(sc_dashboards['response']['usable'])):
-            if "CISA Known Exploited Vulns Status - Updated" in sc_dashboards['response']['usable'][x]['name']:
+            if "CISA Known Exploited Vulns Status - Updated" in sc_dashboards['response']['usable'][x]['name'] or "CISA KEV" in sc_dashboards['response']['usable'][x]['name']:
                 print("Updating the existing dashboard for", sc_dashboards['response']['usable'][x]['name'])
                 dashboard_id = sc_dashboards['response']['usable'][x]['id']
                 dcomponent = json.loads(sc.get('dashboard/' + dashboard_id + '/component').text)
@@ -268,12 +268,12 @@ def query_populate():
                     if refresh_required is True:
                         sc.post('dashboard/' + dashboard_id + '/component/' + component['id'] + '/refresh')
                         print("Updated "+ component_details['name'])
-                if sc_dashboards['response']['usable'][x]['name'] != dashboard_name:
+                if sc_dashboards['response']['usable'][x]['name'] != dashboard_name and "CISA KEV" not in sc_dashboards['response']['usable'][x]['name']:
                     data = { 'name' : dashboard_name }
                     sc.patch('dashboard/' + dashboard_id, params=data)
                     print("Updating the name of " + sc_dashboards['response']['usable'][x]['name'] + " to " + dashboard_name) 
                 skip_dashboard = True
-                break
+                
         if skip_dashboard is False:
             gen_dashboard(entry_title, entry_description, relative_due_dates, True, 0)
             print("Created a new dashboard for", dashboard_name)
@@ -281,20 +281,27 @@ def query_populate():
     if arc_request is True:
         skip_arc = False
         skip_arc_entry = False
-        
+        cisa_past_due,cisa_7_day,cisa_14_day,cisa_28_day,cisa_8_week,cisa_12_week,cisa_12plus_week = enable_xrefs(relative_due_dates)
         arc_name = arc_template_name.replace("{{ Current_Date }}", str(today))
         
         for x in range(len(sc_arcs['response']['usable'])):
             if "CISA Known Exploited Vulns Status - Updated 2" in sc_arcs['response']['usable'][x]['name']:
-                print("Updating the existing ARC for", sc_arcs['response']['usable'][x]['name'])
+                updated_arc_name = re.sub("(\d{4}-\d{2}-\d{2})", str(today), sc_arcs['response']['usable'][x]['name'])
+                focus_filters = json.loads(sc.get('arc/' + sc_arcs['response']['usable'][x]['id']).text)['response']['focusFilters']
+                print("Updating the existing ARC for", updated_arc_name)
                 skip_arc = True
+                updated_ps = []
                 for y in range(len(sc_arcs['response']['usable'][x]['policyStatements'])):
-                    if entry_title == sc_arcs['response']['usable'][x]['policyStatements'][y]['label']:
-                        print("There is an existing ARC entry for", entry_title, "skipping")
-                        skip_arc_entry = True
-                        break
-                    else:
-                        arc_id = sc_arcs['response']['usable'][x]['id']
+                    cisa_arc_ps = json.loads(sc.get('arc/' + sc_arcs['response']['usable'][x]['id']).text)['response']['policyStatements']
+                    for ps in cisa_arc_ps:
+                        list_filters = update_policy_statement(ps, relative_due_dates)
+                        ps['baseFilters'], ps['compliantFilters'], ps['drilldownFilters'] = list_filters
+                        updated_ps.append(ps)
+                    break
+        updated_ps_all = { 'name': updated_arc_name, 'focusFilters': focus_filters, 'schedule': { "enabled": "true", "repeatRule": "FREQ=DAILY;INTERVAL=1", "start": "TZID=UTC:20220405T004100", "type": "ical" }, 'policyStatements': updated_ps}
+        arc_url = "arc/" + ps['arcID']
+        sc.patch(arc_url, json=updated_ps_all)
+
         if skip_arc is False:
             gen_arc(relative_due_dates, arc_name)
             print("Created an ARC for", arc_name)  
@@ -315,15 +322,15 @@ def gen_arc(relative_due_dates, entry_title):
 
     #Render the definition template with data and print the output
     arc_raw = arc_template_def.render(Current_Date=Current_Date, cisa_past_due=cisa_past_due, cisa_7_day=cisa_7_day, cisa_14_day=cisa_14_day, cisa_28_day=cisa_28_day, cisa_8_week=cisa_8_week, cisa_12_week=cisa_12_week, cisa_12plus_week=cisa_12plus_week)
-
-    # Convert the now rendered template back into a format that tsc can understand (base64 encoded PHP serilaized string)
-    arc_raw = ast.literal_eval(arc_raw)
-    arc_def_output = base64.b64encode(serialize(arc_raw))
-
-    # Render the full XML arc template and write the output to a file that we'll then upload to tsc.
-    arc = env.get_template('arc_working_template.txt')
-    arc_xml = arc.render(Entry_Title=Entry_Title, Feed=feed, arc_output=arc_def_output.decode('utf8'))
     
+    arc_template_file = open('templates/arc_working_template.txt')
+    arc_xml = arc_template_file.read()
+
+    for policy_statement in json.loads(arc_raw):
+        policy_statement = ast.literal_eval(policy_statement)
+        arc_def_output = base64.b64encode(serialize(policy_statement))
+        arc_xml = arc_xml.replace("{{ arc_output }}", arc_def_output.decode('utf8'), 1)       
+
     arc_name = Entry_Title.replace(" ","").replace(":","-")[:15] + "_arc.xml"
     generated_tsc_arc_file = open(arc_name, "w")
     generated_tsc_arc_file.write(arc_xml)
@@ -404,6 +411,52 @@ def update_system_query(query_detail, relative_due_dates):
             component_updated = True
     sc.queries.edit(query_detail['id'], filters=query_detail['filters'])
     return component_updated
+
+#Update an arc_policy_statement 
+def update_policy_statement(ps_detail, relative_due_dates):
+    ps_updated = False
+    cisa_past_due,cisa_7_day,cisa_14_day,cisa_28_day,cisa_8_week,cisa_12_week,cisa_12plus_week = enable_xrefs(relative_due_dates)
+    list_filters = [ ps_detail['baseFilters'], ps_detail['compliantFilters'], ps_detail['drilldownFilters'] ]
+
+    for qfilter in list_filters:
+        if not qfilter: continue
+        for at_filter in qfilter:
+            if 'CISA-KNOWN-EXPLOITED|past_due' in at_filter['value']:
+                findex = list_filters.index(qfilter)
+                gindex = qfilter.index(at_filter)
+                list_filters[findex][gindex]['value'] = cisa_past_due
+                ps_updated = True
+            elif 'CISA-KNOWN-EXPLOITED|due_1_week' in at_filter['value']:
+                findex = list_filters.index(qfilter)
+                gindex = qfilter.index(at_filter)
+                list_filters[findex][gindex]['value'] = cisa_7_day
+                ps_updated = True
+            elif 'CISA-KNOWN-EXPLOITED|due_2_week' in at_filter['value']:
+                findex = list_filters.index(qfilter)
+                gindex = qfilter.index(at_filter)
+                list_filters[findex][gindex]['value'] = cisa_14_day
+                ps_updated = True
+            elif 'CISA-KNOWN-EXPLOITED|due_4_week' in at_filter['value']:
+                findex = list_filters.index(qfilter)
+                gindex = qfilter.index(at_filter)
+                list_filters[findex][gindex]['value'] = cisa_28_day
+                ps_updated = True
+            elif 'CISA-KNOWN-EXPLOITED|due_8_week' in at_filter['value']:
+                findex = list_filters.index(qfilter)
+                gindex = qfilter.index(at_filter)
+                list_filters[findex][gindex]['value'] = cisa_8_week
+                ps_updated = True
+            elif 'CISA-KNOWN-EXPLOITED|due_12_week' in at_filter['value']:
+                findex = list_filters.index(qfilter)
+                gindex = qfilter.index(at_filter)
+                list_filters[findex][gindex]['value'] = cisa_12_week
+                ps_updated = True
+            elif 'CISA-KNOWN-EXPLOITED|due_12plus_week' in at_filter['value']:
+                findex = list_filters.index(qfilter)
+                gindex = qfilter.index(at_filter)
+                list_filters[findex][gindex]['value'] = cisa_12plus_week
+                ps_updated = True
+    return list_filters
     
     
 # make relative dates data xref filterable
@@ -494,8 +547,8 @@ for current_argument, current_value in arguments:
         exit()
     #elif current_argument in ("-s", "--t.sc"): # Not implemented until we have T.io functionality
         #print ("Pass to T.sc and attempt to create queries")
-    #if current_argument in ("--arc"):
-    #    arc_request = True
+    if current_argument in ("--arc"):
+        arc_request = True
     if current_argument in ("--asset"):
         asset_request = True
     if current_argument in ("--dashboard"):
@@ -572,27 +625,28 @@ if len(feed_URL) >= 10:
         arc_working_template_file.close()
 
         # Let's put the encoded report def into a format we can work with
-        arc_template_def = base64.b64decode(arc_template_def.group(1))
-        arc_template_def = unserialize(arc_template_def, decode_strings=True)
+        arc_replaced = []
+        for policy_statement in arc_template_def:
+            arc_template_def = base64.b64decode(policy_statement)
+            arc_template_def = unserialize(arc_template_def, decode_strings=True)
 
-        # Replace the CVE placeholder with something we can swap out later
-        arc_template_def = str(arc_template_def)\
-                    .replace("CVE-1990-0000", "{{ cve_list }}")\
-                    .replace("{{ CISA|Past_Due }}", "{{ cisa_past_due }}")\
-                    .replace("{{ CISA|7_Days }}", "{{ cisa_7_day }}")\
-                    .replace("{{ CISA|7-14_Days }}", "{{ cisa_14_day }}")\
-                    .replace("{{ CISA|14-28_Days }}", "{{ cisa_28_day }}")\
-                    .replace("{{ CISA|4-8_Weeks }}", "{{ cisa_8_week }}")\
-                    .replace("{{ CISA|8-12_Weeks }}", "{{ cisa_12_week }}")\
-                    .replace("{{ CISA|12+_Weeks }}", "{{ cisa_12plus_week }}")
+            # Replace the CVE placeholder with something we can swap out later
+            arc_template_def = str(arc_template_def)\
+                        .replace("CVE-1990-0000", "{{ cve_list }}")\
+                        .replace("{{ CISA|Past_Due }}", "{{ cisa_past_due }}")\
+                        .replace("{{ CISA|7_Days }}", "{{ cisa_7_day }}")\
+                        .replace("{{ CISA|7-14_Days }}", "{{ cisa_14_day }}")\
+                        .replace("{{ CISA|14-28_Days }}", "{{ cisa_28_day }}")\
+                        .replace("{{ CISA|4-8_Weeks }}", "{{ cisa_8_week }}")\
+                        .replace("{{ CISA|8-12_Weeks }}", "{{ cisa_12_week }}")\
+                        .replace("{{ CISA|12+_Weeks }}", "{{ cisa_12plus_week }}")
+            
+            arc_replaced.append(arc_template_def)
 
         # Write this definition template to a file
         arc_template_def_file = open("templates/arc_definition.txt", "w")
-        arc_template_def_file.write(arc_template_def)
+        arc_template_def_file.write(str(arc_replaced))
         arc_template_def_file.close()
-
-    if alert_request is True:
-        sc_alerts = sc.alerts.list()
 
     if dashboard_request is True:
         sc_dashboards = sc.get('dashboard').text
