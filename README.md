@@ -122,7 +122,7 @@ Finished updating Tenable.sc with the latest available data from CISA.
 4. Run the docker command as above, substituting '~/Downloads/known_exploited_vulnerabilities.json' in the command below to the local path of the file downloaded in step 1.
 
 ```
-docker run --rm --env-file labbox.env -v ~/Downloads/known_exploited_vulnerabilities.json:/home/vulnfeed/known_exploited_vulnerabilities.json tecnobabble/cisa-kev_2_tsc:latest --feed cisa-kev --dashboard
+docker run --rm --env-file .env -v ~/Downloads/known_exploited_vulnerabilities.json:/home/vulnfeed/known_exploited_vulnerabilities.json tecnobabble/cisa-kev_2_tsc:latest --feed cisa-kev
 ```
 
 ### Suggested operations
