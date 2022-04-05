@@ -77,7 +77,7 @@ Run the container, passing your .env file to the container and specify the feed 
 
 ### Flags
  - `--feed cisa-kev`
-	 - Generates a queries based on the findings noted in the [CISA Catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)
+	 - Generates queries based on the findings noted in the [CISA Catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)
 	 - Takes 1 string argument; required.  
  -  `--asset`
 	 - Creates a dynamic asset in Tenable.sc with the CVEs noted in the feed entry.
