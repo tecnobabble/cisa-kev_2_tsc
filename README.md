@@ -3,7 +3,7 @@
 
 CISA KEV to Tenable.sc is a way to parse vulnerability data from the CISA Catalog of Known Exploitable Vulnerabilities Catalog into [Tenable.sc](https://www.tenable.com/products/tenable-sc).
 
-This integration automatically updates with the latest alerts from the CISA catalog and provides relative timelines for tracking and remedation.  Assets, Dashboards and Queries can be created and updated automatically.
+This integration automatically updates with the latest alerts from the CISA catalog and provides relative timelines for tracking and remedation.  Assets, Dashboards, Assurance Report Cards, and Queries can be created and updated automatically.
 
 ***This tool is not an officially supported Tenable project***
 
@@ -84,7 +84,11 @@ Run the container, passing your .env file to the container and specify the feed 
 	 - No arguments, optional.
  - `--dashboard`
     - Creates a Dashboard named "CISA Known Exploited Vulns Status - Updated 2022-02-16" where the date is the last date that the script has updated the dashboard.
+    - Attempts to update any custom dashboard with "CISA KEV" in the name, IF it's using the xref tags that the primary dashboard uses.
     - No arguments, optional
+ -  `--arc`
+	 - Creates an Assurance Report Card tracking by IPs for the date ranges specified.
+	 - No arguments, optional.
 	 
 ```
 $ docker run --rm --env-file .env tecnobabble/cisa-kev_2_tsc:latest --feed cisa-kev --dashboard
