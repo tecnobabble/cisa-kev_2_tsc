@@ -298,9 +298,9 @@ def query_populate():
                         ps['baseFilters'], ps['compliantFilters'], ps['drilldownFilters'] = list_filters
                         updated_ps.append(ps)
                     break
-        updated_ps_all = { 'name': updated_arc_name, 'focusFilters': focus_filters, 'schedule': { "enabled": "true", "repeatRule": "FREQ=DAILY;INTERVAL=1", "start": "TZID=UTC:20220405T004100", "type": "ical" }, 'policyStatements': updated_ps}
-        arc_url = "arc/" + ps['arcID']
-        sc.patch(arc_url, json=updated_ps_all)
+                updated_ps_all = { 'name': updated_arc_name, 'focusFilters': focus_filters, 'schedule': { "enabled": "true", "repeatRule": "FREQ=DAILY;INTERVAL=1", "start": "TZID=UTC:20220405T004100", "type": "ical" }, 'policyStatements': updated_ps}
+                arc_url = "arc/" + ps['arcID']
+                sc.patch(arc_url, json=updated_ps_all)
 
         if skip_arc is False:
             gen_arc(relative_due_dates, arc_name)
