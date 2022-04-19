@@ -12,7 +12,7 @@ This integration automatically updates with the latest alerts from the CISA cata
 ## Requirements
 * [Tenable.sc](https://www.tenable.com/products/tenable-sc) 5.20 or higher is required for proper CISA Cross Reference usage.
 * Docker; though technically you can run the script standalone (not supported).
-* Access to the [CISA Known Exploitable Vulnerabilities Catalog](https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json).  Offline support will be added in a future release
+* Access to the [CISA Known Exploitable Vulnerabilities Catalog](https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json).  Offline support is documented below.
 * Network access to your T.sc instance over the UI/API interface (default is TCP 443)
 
 ## Installation
