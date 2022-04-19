@@ -116,7 +116,7 @@ Finished updating Tenable.sc with the latest available data from CISA.
 ![example vulnfeed_output](https://res.cloudinary.com/salted-security/image/upload/v1645112723/Github/cisa-kev-dashboard_krzshz.png)
 
 ### Offline Mode
-1. Download the 'known_exploited_vulnerabilities.json' file from the [CISA Catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog).  
+1. Download the 'known_exploited_vulnerabilities.json' file from the [CISA Catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog). 
 2. Pull or build the docker image locally then [save it](https://docs.docker.com/engine/reference/commandline/save/).
 3. Sneaker-net both files to your air-gapped or offline system that can access Tenable.sc.  
 4. Run the docker command as above, substituting '~/Downloads/known_exploited_vulnerabilities.json' in the command below to the local path of the file downloaded in step 1.
@@ -124,6 +124,7 @@ Finished updating Tenable.sc with the latest available data from CISA.
 ```
 docker run --rm --env-file .env -v ~/Downloads/known_exploited_vulnerabilities.json:/home/vulnfeed/known_exploited_vulnerabilities.json tecnobabble/cisa-kev_2_tsc:latest --feed cisa-kev
 ```
+Note: Offline support assumes that the .json file was updated today (aka, the date the script runs.)
 
 ### Suggested operations
 * Run the script on a daily basis.  This can be most easily accomplished through cron.
