@@ -16,6 +16,8 @@ import html
 import json
 import logging
 import warnings
+import math
+from pprint import pprint
 
 warnings.filterwarnings('ignore')
 warnings.warn('Starting an unauthenticated session')
@@ -108,6 +110,19 @@ def query_populate():
     due_dates = set()
     for vuln in data['vulnerabilities']:
         due_dates.add(vuln['dueDate'])
+
+    date_2_cve = dict()
+    for due_date in due_dates:
+        due_date_formatted = datetime.datetime.strptime(due_date, '%Y-%m-%d')
+        date_2_cve[due_date_formatted] = []
+        for vuln in data['vulnerabilities']:
+            if due_date == vuln['dueDate']:
+                date_2_cve[due_date_formatted].append("CVE|" + vuln['cveID'])
+        if len(date_2_cve[due_date_formatted]) > 100:
+            date_2_cve[due_date_formatted] = list(divide_chunks(date_2_cve[due_date_formatted], 100))
+
+    date_2_cve = sorted(date_2_cve.items(), reverse=True)
+    date_2_cve = list(divide_chunks(date_2_cve, 10))
     
     today = datetime.date.today()
     
@@ -539,6 +554,11 @@ def gen_asset(entry_title, asset_rules, new_asset, asset_id, today):
     elif new_asset is False:
         sc.asset_lists.edit(id=asset_id,list_type="dynamic",tags="CISA KEV",rules=asset_rules,description="Updated at " + str(today))
 
+# simple break list into chunks function 
+def divide_chunks(l, n):
+    # looping till length l
+    for i in range(0, len(l), n):
+        yield l[i:i + n]
 
 # Actually handling the arguments that come into the container.
 for current_argument, current_value in arguments:
@@ -553,6 +573,8 @@ for current_argument, current_value in arguments:
         asset_request = True
     if current_argument in ("--dashboard"):
         dashboard_request = True
+    if current_argument in ("--cisa-dashboard-raw-list"):
+        dashboard_raw_data_request = True
     if current_argument in ("-f", "--feed"):
         feed = current_value.upper()
         if current_value == "cisa-kev":
@@ -656,6 +678,43 @@ if len(feed_URL) >= 10:
             sc_dashboard_template_path = 'templates/custom_sc_dashboard.xml'
         else:
             sc_dashboard_template_path = "templates/sc_dashboard_template.xml"
+
+        # Let's read the base sc template and pull out the dashboard definitions and other info
+        sc_dashboard_template_file = open(sc_dashboard_template_path, "r")
+        dashboard_template_contents = sc_dashboard_template_file.read()
+        dashboard_template_def = re.findall("<definition>(.+)</definition>", str(dashboard_template_contents))
+        dashboard_template_name = re.findall("<name>(.+)</name>", str(dashboard_template_contents))
+        dashboard_template_desc = re.findall("<description>(.+)</description>", str(dashboard_template_contents))
+        sc_dashboard_template_file.close()
+
+        # replace def with tag to be substituted later
+        new_sc_dashboard_template = re.sub("<definition>(.+)</definition>", "<definition>{{ dashboard_output }}</definition>", str(dashboard_template_contents))
+        sc_working_dashboard_template_file = open('templates/sc_working_dashboard_template.txt', "w")
+        sc_working_dashboard_template_file.write(new_sc_dashboard_template)
+        sc_working_dashboard_template_file.close()
+        
+        dashboard_components_list = []
+        # Let's put the encoded dashboard def into a format we can work with
+        for component_def in dashboard_template_def:
+            component_template_def = base64.b64decode(component_def)
+            component_template_def = unserialize(component_template_def, decode_strings=True)
+            #print(component_template_def)
+            # Replace the CVE placeholder with something we can swap out later
+            component_template_def = str(component_template_def)\
+                    .replace("CVE-1990-0000", "{{ cve_list }}")\
+                    .replace("{{ CISA|Past_Due }}", "{{ cisa_past_due }}")\
+                    .replace("{{ CISA|7_Days }}", "{{ cisa_7_day }}")\
+                    .replace("{{ CISA|7-14_Days }}", "{{ cisa_14_day }}")\
+                    .replace("{{ CISA|14-28_Days }}", "{{ cisa_28_day }}")\
+                    .replace("{{ CISA|4-8_Weeks }}", "{{ cisa_8_week }}")\
+                    .replace("{{ CISA|8-12_Weeks }}", "{{ cisa_12_week }}")\
+                    .replace("{{ CISA|12+_Weeks }}", "{{ cisa_12plus_week }}")
+            dashboard_components_list.append(component_template_def)
+
+    if dashboard_raw_data_request is True:
+        sc_dashboards = sc.get('dashboard').text
+        sc_dashboards = json.loads(sc_dashboards)
+        sc_dashboard_template_path = "templates/cisa_raw_data_dashboard_template.xml"
 
         # Let's read the base sc template and pull out the dashboard definitions and other info
         sc_dashboard_template_file = open(sc_dashboard_template_path, "r")
