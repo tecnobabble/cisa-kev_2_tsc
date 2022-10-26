@@ -53,7 +53,7 @@ email_list = ""
 full_cmd_arguments = sys.argv
 argument_list = full_cmd_arguments[1:]
 short_options = "hfre:"
-long_options = ["help", "feed=", "report", "alert", "email=", "asset", "arc", "dashboard"]
+long_options = ["help", "feed=", "report", "alert", "email=", "asset", "arc", "dashboard", "cisa-dashboard-raw-list"]
 
 try:
     arguments, values = getopt.getopt(argument_list, short_options, long_options)
@@ -113,7 +113,8 @@ def query_populate():
 
     date_2_cve = dict()
     for due_date in due_dates:
-        due_date_formatted = datetime.datetime.strptime(due_date, '%Y-%m-%d')
+        date_format = '%Y-%m-%d'
+        due_date_formatted = datetime.datetime.strptime(due_date, date_format)
         date_2_cve[due_date_formatted] = []
         for vuln in data['vulnerabilities']:
             if due_date == vuln['dueDate']:
@@ -212,9 +213,6 @@ def query_populate():
     relative_due_dates['CISA Vulns Due in more than 12 weeks'] = due_12plus_week_optimize
     relative_due_dates['CISA Vulns Due in more than 12 weeks'].add("due_12plus_week")
 
-    #print(relative_due_dates)
-
-
     # Create the Query
     
     for key in relative_due_dates.keys():
@@ -259,7 +257,7 @@ def query_populate():
             if asset_done is False:
                 gen_asset(entry_title, asset_rules, True, 0, today)
                 print("Created an asset for", entry_title)
-    
+
     if dashboard_request is True:
         entry_description = ""
 
@@ -292,7 +290,44 @@ def query_populate():
         if skip_dashboard is False:
             gen_dashboard(entry_title, entry_description, relative_due_dates, True, 0)
             print("Created a new dashboard for", dashboard_name)
+
+
+    if dashboard_raw_data_request is True:
+        entry_description = ""
+
+        skip_dashboard = False
     
+        # Make the Dashboard Name usable (replace variables)
+        dashboard_name = dashboard_template_name[0].replace("{{ Current_Date }}", str(today))
+
+        for x in range(len(sc_dashboards['response']['usable'])):
+            if "CISA Known Exploited Vulns by Date - Updated" in sc_dashboards['response']['usable'][x]['name']:
+                print("Updating the existing dashboard for", sc_dashboards['response']['usable'][x]['name'])
+                dashboard_id = sc_dashboards['response']['usable'][x]['id']
+                dcomponent = json.loads(sc.get('dashboard/' + dashboard_id + '/component').text)
+
+                for component in dcomponent['response']:
+                    refresh_required = False
+                    component_details = json.loads(sc.get('dashboard/' + dashboard_id + '/component/' + component['id']).text)['response']
+                    print("Checking " + component_details['name'] + "...")
+                    for datasources in component_details['definition']['allDataSources']:
+                        query_detail = sc.queries.details(datasources['queryID'])
+                        refresh_required = update_system_query(query_detail, relative_due_dates)
+                    if refresh_required is True:
+                        sc.post('dashboard/' + dashboard_id + '/component/' + component['id'] + '/refresh')
+                        print("Updated "+ component_details['name'])
+                if sc_dashboards['response']['usable'][x]['name'] != dashboard_name and "CISA KEV" not in sc_dashboards['response']['usable'][x]['name']:
+                    data = { 'name' : dashboard_name }
+                    sc.patch('dashboard/' + dashboard_id, params=data)
+                    print("Updating the name of " + sc_dashboards['response']['usable'][x]['name'] + " to " + dashboard_name) 
+                skip_dashboard = True
+                
+        if skip_dashboard is False:
+            gen_cisa_raw_dashboard(entry_title, entry_description, date_2_cve, True, 0)
+            print("Created a new dashboard for", dashboard_name)
+    
+
+
     if arc_request is True:
         skip_arc = False
         skip_arc_entry = False
@@ -546,6 +581,79 @@ def gen_dashboard(entry_title, entry_description, relative_due_dates, new_dashbo
 
     return dashboard_id
 
+# Generate a canned t.sc dashboard about the entry
+def gen_cisa_raw_dashboard(entry_title, entry_description, date_2_cve, new_dashboard, dashboard_id):
+    Entry_Title = entry_title.replace("'","")
+    #Entry_ShortDesc = "For more information, please see the full page at " + entry_link
+    Entry_Summary = entry_description.replace("'","").replace("\\","/")
+    today = datetime.date.today()
+    Current_Date = str(today)
+
+    
+    dashboard_template_file = open('templates/sc_working_dashboard_template.txt', "r")
+    dashboard_template_contents = dashboard_template_file.read()
+
+    
+    for x in range(len(re.findall("<definition>(.+)</definition>", str(dashboard_template_contents)))):
+        r_dashboard_component = Environment(loader=BaseLoader()).from_string(dashboard_components_list[x]).render(KEV_DUE_DATE="KEV_DUE_DATE", cisa_kev_cves="cisa_kev_cves", DATE1="first_date", DATE2="second_date")
+
+        for group_of_kev in date_2_cve:
+            matrix_component = ast.literal_eval(r_dashboard_component)
+            matrix_component.pop("cells")
+            matrix_component.pop("rowLabels")
+            matrix_component["cells"] = {}
+            matrix_component["rowLabels"] = {}
+            
+            row_name_sequence = 1
+            sequence = 0
+            cell_number = 0
+            for date_of_kev in group_of_kev:
+                for cell in ast.literal_eval(r_dashboard_component)['cells'].values():
+                    modified_value = ast.literal_eval(str(cell).replace("cisa_kev_cves",','.join(date_of_kev[1])))
+                    matrix_component["cells"][cell_number] = modified_value
+                    cell_number += 1
+
+                modified_row_label = str(ast.literal_eval(r_dashboard_component)['rowLabels'][0]).replace("1",str(row_name_sequence)).replace("KEV_DUE_DATE",date_of_kev[0].strftime("%m/%d/%Y"))
+                matrix_component["rowLabels"][sequence] = ast.literal_eval(modified_row_label)
+                sequence += 1
+                row_name_sequence += 1
+            matrix_component['rows'] = row_name_sequence - 1
+            last_row_label = matrix_component['rows'] - 1
+            matrix_component['title'] = matrix_component['title'].replace("first_date", matrix_component['rowLabels'][0]['text']).replace("second_date", matrix_component['rowLabels'][last_row_label]['text'])
+
+
+            break
+
+        #exit()
+ 
+        #component_raw = ast.literal_eval(component_render)
+        component_output = base64.b64encode(serialize(matrix_component))
+
+        dashboard_template_contents = str(dashboard_template_contents).replace('{{ dashboard_output }}', component_output.decode("utf8"), 1)
+        dashboard_template_contents = str(dashboard_template_contents).replace("{{ DATE1 }}", matrix_component['rowLabels'][0]['text']).replace("{{ DATE2 }}", matrix_component['rowLabels'][last_row_label]['text'])
+   
+    
+    r_dashboard_full = Environment(loader=BaseLoader()).from_string(dashboard_template_contents)
+    dashboard_full = r_dashboard_full.render(Current_Date=Current_Date, Entry_Title=Entry_Title, Entry_Summary=Entry_Summary)
+    
+
+    # Write the output to a file that we'll then upload to tsc.
+    dashboard_name = Entry_Title.replace(" ","").replace(":","-")[:15] + "_dashboard.xml"
+    generated_tsc_dashboard_file = open(dashboard_name, "w")
+    generated_tsc_dashboard_file.write(dashboard_full)
+    generated_tsc_dashboard_file.close()
+
+    # Upload the dashboard to T.sc
+    generated_tsc_dashboard_file = open(dashboard_name, "r")
+    tsc_file = sc.files.upload(generated_tsc_dashboard_file)
+    dashboard_data = { "name":"","order":"1","filename":str(tsc_file) }
+    dashboard_post = sc.post('dashboard/import', json=dashboard_data).text
+    dashboard_post = json.loads(dashboard_post)
+    dashboard_id = dashboard_post['response']['id']
+    generated_tsc_dashboard_file.close()
+
+    return dashboard_id
+
 # Generate an asset
 def gen_asset(entry_title, asset_rules, new_asset, asset_id, today):
     asset_name = entry_title
@@ -738,14 +846,7 @@ if len(feed_URL) >= 10:
             #print(component_template_def)
             # Replace the CVE placeholder with something we can swap out later
             component_template_def = str(component_template_def)\
-                    .replace("CVE-1990-0000", "{{ cve_list }}")\
-                    .replace("{{ CISA|Past_Due }}", "{{ cisa_past_due }}")\
-                    .replace("{{ CISA|7_Days }}", "{{ cisa_7_day }}")\
-                    .replace("{{ CISA|7-14_Days }}", "{{ cisa_14_day }}")\
-                    .replace("{{ CISA|14-28_Days }}", "{{ cisa_28_day }}")\
-                    .replace("{{ CISA|4-8_Weeks }}", "{{ cisa_8_week }}")\
-                    .replace("{{ CISA|8-12_Weeks }}", "{{ cisa_12_week }}")\
-                    .replace("{{ CISA|12+_Weeks }}", "{{ cisa_12plus_week }}")
+                    .replace("{{ CVE|cisa_kev_cves }}", "{{ cisa_kev_cves }}")
             dashboard_components_list.append(component_template_def)
 
 

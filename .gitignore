@@ -6,3 +6,4 @@ templates/arc_definition.txt
 templates/arc_working_template.txt
 templates/sc_working_dashboard_template.txt
 known_exploited_vulnerabilities.json
+CISAVulnsDueinm_dashboard.xml
