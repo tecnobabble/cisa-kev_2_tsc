@@ -123,7 +123,7 @@ def query_populate():
             date_2_cve[due_date_formatted] = list(divide_chunks(date_2_cve[due_date_formatted], 100))
 
     date_2_cve = sorted(date_2_cve.items(), reverse=True)
-    date_2_cve = list(divide_chunks(date_2_cve, 10))
+    #date_2_cve = list(divide_chunks(date_2_cve, 10))
     
     today = datetime.date.today()
     
@@ -581,7 +581,7 @@ def gen_dashboard(entry_title, entry_description, relative_due_dates, new_dashbo
 
     return dashboard_id
 
-# Generate a canned t.sc dashboard about the entry
+# Generate a cisa dashboard with all the data by due date 
 def gen_cisa_raw_dashboard(entry_title, entry_description, date_2_cve, new_dashboard, dashboard_id):
     Entry_Title = entry_title.replace("'","")
     #Entry_ShortDesc = "For more information, please see the full page at " + entry_link
@@ -593,47 +593,78 @@ def gen_cisa_raw_dashboard(entry_title, entry_description, date_2_cve, new_dashb
     dashboard_template_file = open('templates/sc_working_dashboard_template.txt', "r")
     dashboard_template_contents = dashboard_template_file.read()
 
-    
-    for x in range(len(re.findall("<definition>(.+)</definition>", str(dashboard_template_contents)))):
-        r_dashboard_component = Environment(loader=BaseLoader()).from_string(dashboard_components_list[x]).render(KEV_DUE_DATE="KEV_DUE_DATE", cisa_kev_cves="cisa_kev_cves", DATE1="first_date", DATE2="second_date")
+    dashboard_columns = int(re.findall("<numColumns>(.+)</numColumns>", str(dashboard_template_contents))[0])
 
-        for group_of_kev in date_2_cve:
-            matrix_component = ast.literal_eval(r_dashboard_component)
-            matrix_component.pop("cells")
-            matrix_component.pop("rowLabels")
-            matrix_component["cells"] = {}
-            matrix_component["rowLabels"] = {}
-            
-            row_name_sequence = 1
-            sequence = 0
-            cell_number = 0
-            for date_of_kev in group_of_kev:
-                for cell in ast.literal_eval(r_dashboard_component)['cells'].values():
-                    modified_value = ast.literal_eval(str(cell).replace("cisa_kev_cves",','.join(date_of_kev[1])))
-                    matrix_component["cells"][cell_number] = modified_value
+    stripped_dashboard_template_contents = str(dashboard_template_contents).replace('\r', '').replace('\n', '')
+    component_regex = re.compile(r"<component>(.+)</component>", re.MULTILINE)
+
+    for component in component_regex.finditer(dashboard_template_contents):
+        dashboard_component_raw_matrix = component.group()
+
+    full_dashboard_component_str = ""
+    current_dashboard_column = 1
+    component_order = 0
+
+    row_counter = 1
+
+
+    r_dashboard_component = Environment(loader=BaseLoader()).from_string(dashboard_component_raw_matrix).render(KEV_DUE_DATE="KEV_DUE_DATE", cisa_kev_cves="cisa_kev_cves", DATE1="first_date", DATE2="second_date")
+    matrix_component = ast.literal_eval(component_template_def)
+    matrix_component.pop("cells")
+    matrix_component.pop("rowLabels")
+    matrix_component["cells"] = {}
+    matrix_component["rowLabels"] = {}
+
+    row_name_sequence = 1
+    sequence = 0
+    cell_number = 0
+    for date_of_kev in date_2_cve:
+        cell = ast.literal_eval(component_template_def)['cells']
+        if type(date_of_kev[1][0]) is not list:
+            if row_counter == 11:
+                full_dashboard_component_str, component_order, current_dashboard_column = gen_matrix(matrix_component, row_name_sequence, dashboard_component_raw_matrix, current_dashboard_column, component_order, full_dashboard_component_str)
+                row_counter = 1
+                row_name_sequence = 1
+                sequence = 0
+                cell_number=0
+            modified_value = ast.literal_eval(str(cell).replace("{{ cisa_kev_cves }}",','.join(date_of_kev[1])))
+            for key,value in modified_value.items():
+                matrix_component["cells"][cell_number] = value
+                matrix_component["cells"][cell_number]['sequence'] = cell_number + 1
+                cell_number += 1
+            modified_row_label = str(ast.literal_eval(component_template_def)['rowLabels'][0]).replace("1",str(row_name_sequence)).replace("{{ KEV_DUE_DATE }}",date_of_kev[0].strftime("%m/%d/%Y"))
+            matrix_component["rowLabels"][sequence] = ast.literal_eval(modified_row_label)
+            sequence += 1
+            row_name_sequence += 1
+            row_counter += 1
+        else:
+            subgroup_count = 1
+            for cve_subgroup in date_of_kev[1]:
+                if row_counter == 11:
+                    full_dashboard_component_str, component_order, current_dashboard_column = gen_matrix(matrix_component, row_name_sequence, dashboard_component_raw_matrix, current_dashboard_column, component_order, full_dashboard_component_str)
+                    row_counter = 1
+                    row_name_sequence = 1
+                    sequence = 0
+                    cell_number=0
+                modified_value = ast.literal_eval(str(cell).replace("{{ cisa_kev_cves }}",','.join(cve_subgroup)))
+                for key,value in modified_value.items():
+                    matrix_component["cells"][cell_number] = value
+                    matrix_component["cells"][cell_number]['sequence'] = cell_number + 1
                     cell_number += 1
-
-                modified_row_label = str(ast.literal_eval(r_dashboard_component)['rowLabels'][0]).replace("1",str(row_name_sequence)).replace("KEV_DUE_DATE",date_of_kev[0].strftime("%m/%d/%Y"))
+                if subgroup_count == 1:
+                    modified_row_label = str(ast.literal_eval(component_template_def)['rowLabels'][0]).replace("1",str(row_name_sequence)).replace("{{ KEV_DUE_DATE }}",date_of_kev[0].strftime("%m/%d/%Y"))
+                else:
+                    modified_row_label = str(ast.literal_eval(component_template_def)['rowLabels'][0]).replace("1",str(row_name_sequence)).replace("{{ KEV_DUE_DATE }}",date_of_kev[0].strftime("%m/%d/%Y") + " (Cont)")
                 matrix_component["rowLabels"][sequence] = ast.literal_eval(modified_row_label)
                 sequence += 1
                 row_name_sequence += 1
-            matrix_component['rows'] = row_name_sequence - 1
-            last_row_label = matrix_component['rows'] - 1
-            matrix_component['title'] = matrix_component['title'].replace("first_date", matrix_component['rowLabels'][0]['text']).replace("second_date", matrix_component['rowLabels'][last_row_label]['text'])
+                subgroup_count += 1
+                row_counter += 1
+        if date_of_kev == date_2_cve[-1] and cell_number != 0:
+            full_dashboard_component_str, component_order, current_dashboard_column = gen_matrix(matrix_component, row_name_sequence, dashboard_component_raw_matrix, current_dashboard_column, component_order, full_dashboard_component_str)
 
-
-            break
-
-        #exit()
- 
-        #component_raw = ast.literal_eval(component_render)
-        component_output = base64.b64encode(serialize(matrix_component))
-
-        dashboard_template_contents = str(dashboard_template_contents).replace('{{ dashboard_output }}', component_output.decode("utf8"), 1)
-        dashboard_template_contents = str(dashboard_template_contents).replace("{{ DATE1 }}", matrix_component['rowLabels'][0]['text']).replace("{{ DATE2 }}", matrix_component['rowLabels'][last_row_label]['text'])
-   
-    
-    r_dashboard_full = Environment(loader=BaseLoader()).from_string(dashboard_template_contents)
+    final_dashboard_template_contents = re.sub(r"<dashboardComponents>(.+)</dashboardComponents>", r'\1'+'<dashboardComponents>'+full_dashboard_component_str+'</dashboardComponents>', stripped_dashboard_template_contents)
+    r_dashboard_full = Environment(loader=BaseLoader()).from_string(final_dashboard_template_contents)
     dashboard_full = r_dashboard_full.render(Current_Date=Current_Date, Entry_Title=Entry_Title, Entry_Summary=Entry_Summary)
     
 
@@ -642,6 +673,8 @@ def gen_cisa_raw_dashboard(entry_title, entry_description, date_2_cve, new_dashb
     generated_tsc_dashboard_file = open(dashboard_name, "w")
     generated_tsc_dashboard_file.write(dashboard_full)
     generated_tsc_dashboard_file.close()
+
+    #exit()
 
     # Upload the dashboard to T.sc
     generated_tsc_dashboard_file = open(dashboard_name, "r")
@@ -653,6 +686,36 @@ def gen_cisa_raw_dashboard(entry_title, entry_description, date_2_cve, new_dashb
     generated_tsc_dashboard_file.close()
 
     return dashboard_id
+
+# generate matrix
+def gen_matrix(matrix_component, row_name_sequence, dashboard_component_raw_matrix, current_dashboard_column, component_order, full_dashboard_component_str):
+    matrix_component['rows'] = row_name_sequence - 1
+    last_row_label = matrix_component['rows'] - 1
+    matrix_component['title'] = matrix_component['title'].replace("{{ DATE1 }}", matrix_component['rowLabels'][0]['text']).replace("{{ DATE2 }}", matrix_component['rowLabels'][last_row_label]['text'])
+
+    #pprint(matrix_component)
+    component_output = base64.b64encode(serialize(matrix_component))
+
+    dashboard_template_contents = str(dashboard_component_raw_matrix).replace('{{ dashboard_output }}', component_output.decode("utf8"), 1)
+
+    dashboard_template_contents = dashboard_template_contents.replace("{{ DATE1 }}", matrix_component['rowLabels'][0]['text']).replace("{{ DATE2 }}", matrix_component['rowLabels'][last_row_label]['text'])
+
+    dashboard_template_contents = dashboard_template_contents.replace("<column>1</column>", "<column>" + str(current_dashboard_column) + "</column>")
+    dashboard_template_contents = dashboard_template_contents.replace("<order>0</order>", "<order>" + str(component_order) + "</order>")
+    
+    if current_dashboard_column < 3:
+        current_dashboard_column += 1
+    else:
+        current_dashboard_column = 1
+        component_order += 1
+
+    full_dashboard_component_str += dashboard_template_contents
+
+    #reset row counter
+    row_counter = 1
+
+    return full_dashboard_component_str, component_order, current_dashboard_column
+
 
 # Generate an asset
 def gen_asset(entry_title, asset_rules, new_asset, asset_id, today):
@@ -827,9 +890,12 @@ if len(feed_URL) >= 10:
         # Let's read the base sc template and pull out the dashboard definitions and other info
         sc_dashboard_template_file = open(sc_dashboard_template_path, "r")
         dashboard_template_contents = sc_dashboard_template_file.read()
-        dashboard_template_def = re.findall("<definition>(.+)</definition>", str(dashboard_template_contents))
-        dashboard_template_name = re.findall("<name>(.+)</name>", str(dashboard_template_contents))
-        dashboard_template_desc = re.findall("<description>(.+)</description>", str(dashboard_template_contents))
+        dashboard_template_contents = str(dashboard_template_contents).replace('\r', '').replace('\n', '')
+        #dashboard_template_def = re.findall("<definition>(.+)</definition>", str(dashboard_template_contents))
+        dashboard_template_name = re.findall("<name>(.+)</name>", str(dashboard_template_contents))[0]
+        dashboard_template_desc = re.findall("<description>(.+)</description>", str(dashboard_template_contents))[0]
+        dashboard_template_comp = re.findall("<component>(.+)</component>", str(dashboard_template_contents))[0]
+        dashboard_comp_def = re.findall("<definition>(.+)</definition>", str(dashboard_template_comp))[0]
         sc_dashboard_template_file.close()
 
         # replace def with tag to be substituted later
@@ -840,20 +906,13 @@ if len(feed_URL) >= 10:
         
         dashboard_components_list = []
         # Let's put the encoded dashboard def into a format we can work with
-        for component_def in dashboard_template_def:
-            component_template_def = base64.b64decode(component_def)
-            component_template_def = unserialize(component_template_def, decode_strings=True)
-            #print(component_template_def)
-            # Replace the CVE placeholder with something we can swap out later
-            component_template_def = str(component_template_def)\
-                    .replace("{{ CVE|cisa_kev_cves }}", "{{ cisa_kev_cves }}")
-            dashboard_components_list.append(component_template_def)
+        component_template_def = base64.b64decode(dashboard_comp_def)
+        component_template_def = unserialize(component_template_def, decode_strings=True)
+        #print(component_template_def)
+        # Replace the CVE placeholder with something we can swap out later
+        component_template_def = str(component_template_def)\
+                .replace("{{ CVE|cisa_kev_cves }}", "{{ cisa_kev_cves }}")
 
-
-        # Write this definition template to a file
-        #dashboard_template_def_file = open("/templates/dashboard_definition.txt", "w")
-        #dashboard_template_def_file.write(str(dashboard_components_list))
-        #dashboard_template_def_file.close()
 
     query_populate()
 else:
